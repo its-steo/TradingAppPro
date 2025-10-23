@@ -8,6 +8,7 @@ from .views import (
     UserRobotListView,
     PlaceTradeView,
     TradeHistoryView,  # Ensure this is imported
+    ResetDemoBalanceView,
 )
 
 urlpatterns = [
@@ -18,4 +19,5 @@ urlpatterns = [
     path('user-robots/', UserRobotListView.as_view(), name='user_robot_list'),
     path('trades/place/', PlaceTradeView.as_view(), name='place_trade'),
     path('trades/history/', TradeHistoryView.as_view(), name='trade_history'),  # Uncommented
+     path('reset-demo-balance/', ResetDemoBalanceView.as_view(), name='reset_demo_balance'),
 ]
