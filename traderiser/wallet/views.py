@@ -20,11 +20,23 @@ from accounts.models import Account
 from dashboard.models import Transaction
 from .payment import PaymentClient
 
+def generate_reference_id(length: int = 12) -> str:
+    """Generate a random alphanumeric reference ID."""
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+
 logger = logging.getLogger('wallet')
-ADMIN_EMAIL = "admin@traderiser.com"
+ADMIN_EMAIL = "steomustadd@gmail.com"
+
+def generate_otp(length: int = 6) -> str:
+    """
+    Generate a numeric OTP of given length.
+    Returns a string composed of digits.
+    """
+    return ''.join(random.choices(string.digits, k=length))
 
 class WalletListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
     def get(self, request):
         wallets = Wallet.objects.filter(account__user=request.user)
         serializer = WalletSerializer(wallets, many=True)
@@ -32,6 +44,7 @@ class WalletListView(APIView):
 
 class MpesaNumberView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
     def get(self, request):
         try:
             mpesa = MpesaNumber.objects.get(user=request.user)
@@ -59,239 +72,215 @@ class DepositView(APIView):
         currency_code = data.get('currency')
         mpesa_phone = data.get('mpesa_phone')
 
-        # Validate inputs
         if not all([amount, currency_code, mpesa_phone]):
             return Response({'error': 'Amount, currency, and phone required'}, status=status.HTTP_400_BAD_REQUEST)
-        if account_type not in [choice[0] for choice in Account.ACCOUNT_TYPES]:
-            return Response({'error': 'Invalid account type'}, status=status.HTTP_400_BAD_REQUEST)
-        if currency_code != 'KSH':
-            return Response({'error': 'Deposits must be in KSH via M-Pesa'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             amount = Decimal(amount)
             if amount <= 0:
-                raise ValueError('Amount must be positive')
-        except (ValueError, TypeError):
-            return Response({'error': 'Invalid amount'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'error': 'Amount must be positive'}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            # Get specific account by type
             account = Account.objects.get(user=request.user, account_type=account_type)
             if account.account_type == 'demo':
                 return Response({'error': 'Deposits not allowed on demo accounts'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Ensure currencies exist
-            try:
-                ksh = Currency.objects.get(code='KSH')
-            except Currency.DoesNotExist:
-                logger.warning("KSH currency not found, creating default")
-                ksh = Currency.objects.create(code='KSH', name='Kenyan Shilling', symbol='KSh', is_fiat=True)
+            ksh = Currency.objects.get(code='KSH')
+            usd = Currency.objects.get(code='USD')
 
-            try:
-                usd = Currency.objects.get(code='USD')
-            except Currency.DoesNotExist:
-                logger.warning("USD currency not found, creating default")
-                usd = Currency.objects.create(code='USD', name='US Dollar', symbol='$', is_fiat=True)
+            if currency_code != 'KSH':
+                return Response({'error': 'Deposits must be in KSH'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Get or create the main USD wallet for this account
-            wallet, created = Wallet.objects.get_or_create(
-                account=account,
-                wallet_type='main',
-                currency=usd,
-                defaults={'balance': Decimal('0.00')}
+            exchange_rate = ExchangeRate.objects.get(base_currency=ksh, target_currency=usd).live_rate
+            converted_amount = amount * exchange_rate
+
+            wallet = Wallet.objects.get(account=account, wallet_type='main', currency=usd)
+
+            trans = WalletTransaction.objects.create(
+                wallet=wallet,
+                transaction_type='deposit',
+                amount=amount,
+                currency=ksh,
+                target_currency=usd,
+                converted_amount=converted_amount,
+                exchange_rate_used=exchange_rate,
+                status='pending',
+                reference_id=generate_reference_id(),
+                description='Deposit request',
+                mpesa_phone=mpesa_phone
             )
 
-            # Get exchange rate
-            try:
-                rate = ExchangeRate.objects.get(base_currency=ksh, target_currency=usd)
-            except ExchangeRate.DoesNotExist:
-                logger.warning("KSH to USD exchange rate not found, creating default")
-                rate = ExchangeRate.objects.create(
-                    base_currency=ksh,
-                    target_currency=usd,
-                    live_rate=Decimal('0.007752'),  # Example: 1 KSH = 0.007752 USD (as of Oct 2025)
-                    admin_withdrawal_rate=Decimal('0.007500')  # Slightly lower for withdrawals
-                )
+            client = PaymentClient()
+            result = client.initiate_stk_push(mpesa_phone, amount, trans.reference_id)
+            if result['ResponseCode'] != '0':
+                trans.status = 'failed'
+                trans.description += f" | Failed: {result.get('error', 'Unknown error')}"
+                trans.save()
+                return Response({'error': result.get('error', 'Payment initiation failed')}, status=status.HTTP_400_BAD_REQUEST)
 
-            converted = amount * rate.live_rate  # Use multiplication for clarity (1/rate.live_rate was division)
+            trans.checkout_request_id = result['CheckoutRequestID']
+            trans.save()
 
-            with transaction.atomic():
-                trans = WalletTransaction.objects.create(
-                    wallet=wallet,
-                    transaction_type='deposit',
-                    amount=amount,
-                    currency=ksh,
-                    target_currency=usd,
-                    converted_amount=converted,
-                    exchange_rate_used=rate.live_rate,
-                    mpesa_phone=mpesa_phone,
-                    description='M-Pesa Deposit Pending'
-                )
-
-                client = PaymentClient()
-                result = client.initiate_stk_push(
-                    phone_number=mpesa_phone,
-                    amount=amount,
-                    transaction_id=trans.reference_id
-                )
-
-                if result.get('ResponseCode') == '0':
-                    checkout_id = result.get('CheckoutRequestID')
-                    trans.checkout_request_id = checkout_id
-                    trans.save()
-                    return Response({
-                        'message': 'Deposit initiated, check your phone for STK push.',
-                        'transaction_id': trans.id,
-                        'reference_id': trans.reference_id,
-                        'checkout_request_id': checkout_id
-                    })
-                else:
-                    trans.status = 'failed'
-                    trans.description += f' | STK Push Failed: {result.get("error", "Unknown error")}'
-                    trans.save()
-                    logger.error(f"STK Push failed for transaction {trans.reference_id}: {result.get('error')}")
-                    return Response({'error': result.get('error', 'Failed to initiate deposit')}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'transaction_id': trans.id,
+                'reference_id': trans.reference_id,
+                'message': 'STK Push initiated. Please check your phone to complete the payment.'
+            })
 
         except Account.DoesNotExist:
             return Response({'error': 'Account not found'}, status=status.HTTP_404_NOT_FOUND)
-        except Currency.DoesNotExist as e:
-            logger.error(f"Currency error: {str(e)}")
-            return Response({'error': 'Required currency (KSH or USD) not found'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        except ExchangeRate.DoesNotExist as e:
-            logger.error(f"Exchange rate error: {str(e)}")
-            return Response({'error': 'KSH to USD exchange rate not found'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Wallet.DoesNotExist:
+            return Response({'error': 'Wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Currency.DoesNotExist:
+            return Response({'error': 'Currency not found'}, status=status.HTTP_400_BAD_REQUEST)
+        except ExchangeRate.DoesNotExist:
+            return Response({'error': 'Exchange rate not found'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"Deposit error: {str(e)}")
-            return Response({'error': 'Server error during deposit processing'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': 'Internal error'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class WithdrawalOTPView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    # ... (rest of the views unchanged)
+
     def post(self, request):
         serializer = OTPRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+        amount = serializer.validated_data['amount']
+        wallet_type = serializer.validated_data['wallet_type']
+        account_type = serializer.validated_data['account_type']
+
+        if amount <= 0:
+            return Response({'error': 'Amount must be positive'}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
-            amount = serializer.validated_data['amount']
-            wallet_type = serializer.validated_data['wallet_type']
-            wallet = Wallet.objects.get(
-                account__user=request.user,
-                wallet_type=wallet_type,
-                currency__code='USD'
-            )
+            account = Account.objects.get(user=request.user, account_type=account_type)
+            if account.account_type == 'demo':
+                return Response({'error': 'Withdrawals not allowed on demo accounts'}, status=status.HTTP_400_BAD_REQUEST)
+
+            usd = Currency.objects.get(code='USD')
+            wallet = Wallet.objects.get(account=account, wallet_type=wallet_type, currency=usd)
             if wallet.balance < amount:
                 return Response({'error': 'Insufficient balance'}, status=status.HTTP_400_BAD_REQUEST)
-            try:
-                mpesa_number = MpesaNumber.objects.get(user=request.user)
-            except MpesaNumber.DoesNotExist:
-                return Response({'error': 'M-Pesa number not set'}, status=status.HTTP_400_BAD_REQUEST)
 
-            with transaction.atomic():
-                trans = WalletTransaction.objects.create(
-                    wallet=wallet,
-                    transaction_type='withdrawal',
-                    amount=amount,
-                    currency=wallet.currency,
-                    mpesa_phone=mpesa_number.phone_number,
-                    description='Withdrawal Requested'
-                )
-                otp = OTPCode.objects.create(
-                    user=request.user,
-                    purpose='withdrawal',
-                    transaction=trans
-                )
-                send_mail(
-                    "Withdrawal OTP",
-                    f"Hi {request.user.username},\n\nYour OTP for withdrawal of ${amount} is {otp.code}.\nRef: {trans.reference_id}",
-                    settings.DEFAULT_FROM_EMAIL,
-                    [request.user.email]
-                )
-                return Response({
-                    'message': 'OTP sent to your email',
-                    'transaction_id': trans.id,
-                    'reference_id': trans.reference_id
-                })
+            mpesa_phone = ''
+            if hasattr(request.user, 'mpesa_number'):
+                mpesa_phone = request.user.mpesa_number.phone_number
 
+            ksh = Currency.objects.get(code='KSH')
+            exchange_rate = ExchangeRate.objects.get(base_currency=usd, target_currency=ksh).admin_withdrawal_rate
+            converted_amount = amount * exchange_rate
+
+            trans = WalletTransaction.objects.create(
+                wallet=wallet,
+                transaction_type='withdrawal',
+                amount=amount,
+                currency=usd,
+                target_currency=ksh,
+                converted_amount=converted_amount,
+                exchange_rate_used=exchange_rate,
+                status='pending',
+                reference_id=generate_reference_id(),
+                description='Withdrawal request',
+                mpesa_phone=mpesa_phone
+            )
+
+            otp = OTPCode.objects.create(
+                user=request.user,
+                code=generate_otp(),
+                purpose='withdrawal',
+                transaction=trans
+            )
+
+            send_mail(
+                "Withdrawal OTP",
+                f"Your OTP for withdrawal of ${amount} is {otp.code}. It expires in 1 minute.",
+                settings.DEFAULT_FROM_EMAIL,
+                [request.user.email],
+                fail_silently=True
+            )
+
+            return Response({'transaction_id': trans.id, 'message': 'OTP sent to email'})
+
+        except Account.DoesNotExist:
+            return Response({'error': 'Account not found'}, status=status.HTTP_404_NOT_FOUND)
         except Wallet.DoesNotExist:
             return Response({'error': 'Wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Currency.DoesNotExist:
+            return Response({'error': 'Currency not found'}, status=status.HTTP_400_BAD_REQUEST)
+        except ExchangeRate.DoesNotExist:
+            return Response({'error': 'Exchange rate not found'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Withdrawal OTP error: {e}")
-            return Response({'error': 'Server error'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Withdrawal OTP error: {str(e)}")
+            return Response({'error': 'Internal error'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class VerifyWithdrawalOTPView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
     def post(self, request):
         serializer = OTPVerifySerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+        code = serializer.validated_data['code']
+        transaction_id = serializer.validated_data['transaction_id']
+
         try:
             otp = OTPCode.objects.get(
                 user=request.user,
-                code=serializer.validated_data['code'],
+                code=code,
                 purpose='withdrawal',
+                transaction_id=transaction_id,
                 is_used=False
             )
             if otp.is_expired():
-                otp.is_used = True
-                otp.save()
                 return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
 
+            otp.is_used = True
+            otp.save()
+
             trans = otp.transaction
-            if trans.id != serializer.validated_data['transaction_id']:
-                return Response({'error': 'Invalid transaction ID'}, status=status.HTTP_400_BAD_REQUEST)
-            if trans.status != 'pending':
-                return Response({'error': 'Transaction already processed'}, status=status.HTTP_400_BAD_REQUEST)
-
             with transaction.atomic():
-                otp.is_used = True
-                otp.save()
-                trans.status = 'completed'
-                trans.completed_at = timezone.now()
-                trans.save()
-
                 wallet = trans.wallet
                 wallet.balance -= trans.amount
-                wallet.save()
+                wallet.save()  # Deduct amount instantly and trigger sync
 
                 Transaction.objects.create(
                     account=wallet.account,
                     amount=-trans.amount,
                     transaction_type='withdrawal',
-                    description=f"OTP verified: {trans.reference_id}"
+                    description=f"Pending: {trans.reference_id}"
                 )
 
-                send_mail(
-                    "Withdrawal Successful",
-                    f"Hi {request.user.username},\n\n${trans.amount} USD withdrawn.\nRef: {trans.reference_id}",
-                    settings.DEFAULT_FROM_EMAIL, [request.user.email]
-                )
-                send_mail(
-                    "Withdrawal Completed (User Verified)",
-                    f"User: {request.user.username}\nAmount: ${trans.amount}\nPhone: {trans.mpesa_phone}\nRef: {trans.reference_id}\nNow pay via M-Pesa.",
-                    settings.DEFAULT_FROM_EMAIL, [ADMIN_EMAIL]
-                )
+            trans.status = 'pending'  # Pending admin approval
+            trans.save()
 
-            return Response({'message': 'Withdrawal completed. Awaiting admin payment.'})
+            send_mail(
+                "Withdrawal Requested (OTP Verified)",
+                f"User: {request.user.username}\nAmount: ${trans.amount} (KSh {trans.converted_amount})\nRef: {trans.reference_id}",
+                settings.DEFAULT_FROM_EMAIL,
+                [ADMIN_EMAIL]
+            )
+
+            return Response({'message': 'OTP verified. Withdrawal pending approval.'})
 
         except OTPCode.DoesNotExist:
-            return Response({'error': 'Invalid or used OTP'}, status=status.HTTP_400_BAD_REQUEST)
-        except WalletTransaction.DoesNotExist:
-            return Response({'error': 'Transaction not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'error': 'Invalid OTP or transaction'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"OTP verify error: {e}")
-            return Response({'error': 'Server error'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"OTP verification error: {str(e)}")
+            return Response({'error': 'Internal error'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class TransactionListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
     def get(self, request):
-        txs = WalletTransaction.objects.filter(wallet__account__user=request.user)
-        serializer = WalletTransactionSerializer(txs, many=True)
+        transactions = WalletTransaction.objects.filter(wallet__account__user=request.user).order_by('-created_at')
+        serializer = WalletTransactionSerializer(transactions, many=True)
         return Response({'transactions': serializer.data})
 
 class MpesaCallbackView(APIView):
-    permission_classes = []
+    permission_classes = [permissions.AllowAny]
+
     def post(self, request):
         try:
             data = json.loads(request.body)

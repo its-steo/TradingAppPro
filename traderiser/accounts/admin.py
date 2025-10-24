@@ -1,20 +1,44 @@
-# accounts/admin.py
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from django import forms
 from .models import User, Account
 from dashboard.models import Transaction
+from django.apps import apps  # For lazy model loading
+
+class AccountForm(forms.ModelForm):
+    balance = forms.DecimalField(max_digits=12, decimal_places=2, required=False)
+
+    class Meta:
+        model = Account
+        fields = ['account_type', 'balance']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields['balance'].initial = self.instance.balance
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        if 'balance' in self.changed_data:
+            instance.balance = self.cleaned_data['balance']  # Uses setter
+        if commit:
+            instance.save()
+        return instance
 
 class AccountInline(admin.TabularInline):
     model = Account
     extra = 0
-    # Remove readonly to allow balance edits
+    form = AccountForm
     fields = ('account_type', 'balance')
 
     def save_model(self, request, obj, form, change):
         if change and 'balance' in form.changed_data:
-            old_balance = Account.objects.get(pk=obj.pk).balance
-            diff = obj.balance - old_balance
+            old_balance = obj.balance  # Uses property
+            new_balance = form.cleaned_data['balance']
+            diff = new_balance - old_balance
             if diff != 0:
+                # Update via setter (updates wallet, triggers sync)
+                obj.balance = new_balance
                 Transaction.objects.create(
                     account=obj,
                     amount=diff,
