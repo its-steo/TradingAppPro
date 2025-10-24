@@ -4,6 +4,7 @@ import { Inter } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { Toaster } from "sonner";
 import { Suspense } from "react";
+import ClientWrapper from "@/components/ClientWrapper";
 import "./globals.css";
 
 const inter = Inter({
@@ -26,16 +27,18 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className={`${inter.variable} font-sans antialiased`}>
         <Suspense fallback={null}>
-          {children}
+          <ClientWrapper>
+            {children}
+          </ClientWrapper>
           <Toaster 
             theme="dark"
             richColors
-            position="top-right"  // ✅ CHANGED: Top position
+            position="top-right"
             expand={true}
-            visibleToasts={3}     // ✅ REDUCED: Max 3 toasts
+            visibleToasts={3}
             closeButton
             toastOptions={{
-              duration: 4000,     // ✅ REDUCED: 4s instead of 5s
+              duration: 4000,
               style: {
                 background: "linear-gradient(to bottom right, #1f2937, #111827)",
                 color: "white",

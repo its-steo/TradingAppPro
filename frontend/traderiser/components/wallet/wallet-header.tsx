@@ -1,4 +1,3 @@
-// components/wallet/wallet-header.tsx
 "use client"
 
 import { useEffect, useState } from "react"
@@ -12,7 +11,8 @@ export function WalletHeader() {
     const fetchUser = async () => {
       try {
         const res = await api.getAccount()
-        const username = (res.data as { username?: string })?.username
+        const data = (res.data as { user?: { username?: string } } | undefined) ?? undefined
+        const username = data?.user?.username
         if (!res.error && username) {
           setUsername(username)
         }

@@ -7,9 +7,10 @@ interface VerifyWithdrawalModalProps {
   transactionId: string
   onClose: () => void
   onSuccess?: () => void
+  onSetMessage: (msg: { type: 'success' | 'error', text: string }) => void
 }
 
-export function VerifyWithdrawalModal({ transactionId, onClose, onSuccess }: VerifyWithdrawalModalProps) {
+export function VerifyWithdrawalModal({ transactionId, onClose, onSuccess, onSetMessage }: VerifyWithdrawalModalProps) {
   const [otpCode, setOtpCode] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
@@ -50,11 +51,11 @@ export function VerifyWithdrawalModal({ transactionId, onClose, onSuccess }: Ver
       })
       if (res.error) throw new Error(res.error)
 
-      alert("Withdrawal completed successfully!")
+      onSetMessage({ type: 'success', text: "Withdrawal completed successfully!" })
       onSuccess?.()
       onClose()
     } catch (err) {
-      setError((err as Error).message || "Failed to verify OTP")
+      onSetMessage({ type: 'error', text: (err as Error).message || "Failed to verify OTP" })
     } finally {
       setIsSubmitting(false)
     }
@@ -71,9 +72,9 @@ export function VerifyWithdrawalModal({ transactionId, onClose, onSuccess }: Ver
       setTimeLeft(60)
       setCanResend(false)
       setOtpCode("")
-      alert("OTP resent to your email")
+      onSetMessage({ type: 'success', text: "OTP resent to your email" })
     } catch (err) {
-      setError((err as Error).message || "Failed to resend OTP")
+      onSetMessage({ type: 'error', text: (err as Error).message || "Failed to resend OTP" })
     } finally {
       setIsSubmitting(false)
     }
@@ -88,10 +89,10 @@ export function VerifyWithdrawalModal({ transactionId, onClose, onSuccess }: Ver
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md">
+    <div className="fixed inset-0 bg-black/50 flex items-end z-50">
+      <div className="bg-white w-full max-w-2xl rounded-t-3xl shadow-2xl animate-in slide-in-from-bottom mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-slate-200">
+        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-slate-200">
           <button onClick={onClose} className="text-2xl font-bold text-slate-900">
             ✕
           </button>
@@ -99,29 +100,20 @@ export function VerifyWithdrawalModal({ transactionId, onClose, onSuccess }: Ver
           <div className="w-6" />
         </div>
 
-        <div className="p-6 space-y-6">
-          {/* Instructions */}
-          <div className="text-center">
-            <p className="text-slate-600 text-sm sm:text-base mb-2">Enter the 6-digit code sent to your email</p>
-            <p className="text-slate-500 text-xs sm:text-sm">
-              Code expires in <span className="font-semibold text-purple-600">{timeLeft}s</span>
-            </p>
-          </div>
+        <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-h-[90vh] overflow-y-auto pb-20">
+          <p className="text-center text-slate-600">Enter the 6-digit code sent to your email</p>
 
           {/* OTP Input */}
-          <div>
-            <input
-              type="text"
-              value={otpCode}
-              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              maxLength={6}
-              placeholder="000000"
-              className="w-full px-4 py-4 rounded-xl border-2 border-slate-200 focus:border-purple-500 focus:outline-none transition-colors text-center text-2xl tracking-widest font-semibold text-slate-900"
-            />
+          <div className="flex justify-center gap-2 mb-6">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-100 rounded-xl flex items-center justify-center text-2xl font-bold text-slate-900">
+                {otpCode[i] || ""}
+              </div>
+            ))}
           </div>
 
           {/* Numpad */}
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-6">
             {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((num) => (
               <button
                 key={num}

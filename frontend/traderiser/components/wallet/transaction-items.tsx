@@ -10,6 +10,8 @@ interface TransactionItemProps {
     transactionType: string
     exchangeRateUsed?: number
     status: string
+    currency?: { code: string }
+    target_currency?: { code: string }
   }
 }
 
@@ -30,25 +32,45 @@ export function TransactionItem({ transaction }: TransactionItemProps) {
   }
 
   // Helper: format numbers/strings to a currency-like string with 2 decimals
-  const formatCurrency = (value: string | number) => {
+  const formatCurrency = (value: string | number, currency: string, isWithdrawal: boolean = false) => {
+    // If value is a string with currency (e.g., "1300.00 KSH"), split and format
+    if (typeof value === "string") {
+      const match = value.match(/^([\d,.]+)\s*(\w+)?$/)
+      if (match) {
+        const num = Number(match[1].replace(/,/g, ""))
+        const parsedCurrency = match[2] || currency
+        if (!isNaN(num)) {
+          const formattedNum = new Intl.NumberFormat("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          }).format(num)
+          // For withdrawals, place currency code before (e.g., "KSH 1300.00")
+          return isWithdrawal ? `${parsedCurrency} ${formattedNum}` : `${formattedNum} ${parsedCurrency}`
+        }
+      }
+    }
+    // Fallback for number or invalid string
     const num = typeof value === "string" ? Number(value.replace(/[^0-9.-]+/g, "")) : Number(value)
-    if (Number.isNaN(num)) return String(value)
-    return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)
+    const formattedNum = isNaN(num)
+      ? String(value)
+      : new Intl.NumberFormat("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(num)
+    return isWithdrawal ? `${currency} ${formattedNum}` : `${formattedNum} ${currency}`
   }
 
   // Determine image based on transaction type
   const imageSrc = transaction.transactionType.toLowerCase() === "deposit" ? "/real-account-icon.png" : "/transaction-icon.png"
 
-  // Determine display amount (converted currency only)
-  let displayAmount: string
-  if (transaction.transactionType.toLowerCase() === "deposit" && transaction.convertedAmount) {
-    displayAmount = transaction.convertedAmount // e.g., "7.75 USD"
-  } else if (transaction.transactionType.toLowerCase() === "withdrawal" && transaction.exchangeRateUsed) {
-    const kshAmount = Number(transaction.amount.split(" ")[0]) / transaction.exchangeRateUsed
-    displayAmount = `${formatCurrency(kshAmount.toFixed(2))} KSH` // e.g., "1333.33 KSH"
-  } else {
-    displayAmount = transaction.amount // Fallback to original amount
-  }
+  // Use convertedAmount if available, with currency code before for withdrawals
+  const displayAmount = transaction.convertedAmount
+    ? formatCurrency(
+        transaction.convertedAmount,
+        transaction.target_currency?.code || "USD",
+        transaction.transactionType.toLowerCase() === "withdrawal"
+      ) // e.g., "7.69 USD" for deposits, "KSH 1250.00" for withdrawals
+    : formatCurrency(transaction.amount, transaction.currency?.code || "USD")
 
   return (
     <div className="flex items-center justify-between p-4 sm:p-6 hover:bg-slate-50 transition-colors">

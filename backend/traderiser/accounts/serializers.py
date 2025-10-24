@@ -2,6 +2,8 @@ from rest_framework import serializers
 from .models import User, Account
 
 class AccountSerializer(serializers.ModelSerializer):
+    balance = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)  # Now from property
+
     class Meta:
         model = Account
         fields = ['id', 'account_type', 'balance']

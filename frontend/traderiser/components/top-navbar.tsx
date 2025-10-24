@@ -32,12 +32,11 @@ export function TopNavbar({
   const handleLogout = () => {
     onLogout?.()
     setIsMobileMenuOpen(false)
-    // Trigger custom storage change event
     window.dispatchEvent(new Event("custom-storage-change"))
   }
 
   return (
-    <nav className="sticky top-0 z-50 w-full bg-black/40 backdrop-blur-xl border-b border-white/10">
+    <nav className="sticky top-0 z-50 w-full bg-black/50 backdrop-blur-md border-b border-white/20">
       <div className="px-4 sm:px-6 md:px-8 py-4">
         <div className="flex items-center justify-between">
           {/* Logo */}
@@ -51,7 +50,7 @@ export function TopNavbar({
           {/* Center - Balance (Trading Page Only) */}
           {showBalance && isLoggedIn && (
             <div className="hidden md:flex items-center gap-2">
-              <span className="text-sm text-white/60">Account Balance</span>
+              <span className="text-sm text-white/70">Account Balance</span>
               <span className="text-lg font-bold text-white">${accountBalance.toFixed(2)}</span>
             </div>
           )}
@@ -64,7 +63,7 @@ export function TopNavbar({
                 <div className="hidden sm:flex items-center gap-3">
                   <div className="flex flex-col items-end">
                     <p className="text-sm font-medium text-white">{user.username}</p>
-                    <p className="text-xs text-white/60 capitalize">
+                    <p className="text-xs text-white/70 capitalize">
                       {user.accountType === "demo" ? "Demo Account" : "Real Account"}
                     </p>
                   </div>
@@ -72,10 +71,15 @@ export function TopNavbar({
                     <img
                       src={user.image || "/placeholder.svg"}
                       alt={user.username}
-                      className="w-8 h-8 rounded-full border border-white/20"
+                      className="w-8 h-8 rounded-full border border-white/30"
                     />
                   )}
-                  <Button onClick={handleLogout} variant="ghost" size="sm" className="text-white/60 hover:text-white">
+                  <Button
+                    onClick={handleLogout}
+                    variant="ghost"
+                    size="sm"
+                    className="text-white/70 hover:text-white"
+                  >
                     <LogOut className="w-4 h-4" />
                   </Button>
                 </div>
@@ -85,7 +89,11 @@ export function TopNavbar({
                   onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
                   className="sm:hidden p-2 hover:bg-white/10 rounded-lg transition-colors"
                 >
-                  {isMobileMenuOpen ? <X className="w-5 h-5 text-white" /> : <Menu className="w-5 h-5 text-white" />}
+                  {isMobileMenuOpen ? (
+                    <X className="w-5 h-5 text-white" />
+                  ) : (
+                    <Menu className="w-5 h-5 text-white" />
+                  )}
                 </button>
               </>
             ) : (
@@ -98,25 +106,25 @@ export function TopNavbar({
 
         {/* Mobile Menu */}
         {isMobileMenuOpen && isLoggedIn && user && (
-          <div className="sm:hidden mt-4 pt-4 border-t border-white/10 space-y-3">
+          <div className="sm:hidden mt-4 pt-4 border-t border-white/20 space-y-3">
             <div className="flex items-center gap-3 pb-3">
               {user.image && (
                 <img
                   src={user.image || "/placeholder.svg"}
                   alt={user.username}
-                  className="w-10 h-10 rounded-full border border-white/20"
+                  className="w-10 h-10 rounded-full border border-white/30"
                 />
               )}
               <div>
                 <p className="text-sm font-medium text-white">{user.username}</p>
-                <p className="text-xs text-white/60 capitalize">
+                <p className="text-xs text-white/70 capitalize">
                   {user.accountType === "demo" ? "Demo Account" : "Real Account"}
                 </p>
               </div>
             </div>
             {showBalance && (
-              <div className="bg-white/5 rounded-lg p-3">
-                <p className="text-xs text-white/60 mb-1">Account Balance</p>
+              <div className="bg-white/10 rounded-lg p-3">
+                <p className="text-xs text-white/70 mb-1">Account Balance</p>
                 <p className="text-lg font-bold text-white">${accountBalance.toFixed(2)}</p>
               </div>
             )}

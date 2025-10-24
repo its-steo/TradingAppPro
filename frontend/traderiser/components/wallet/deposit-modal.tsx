@@ -3,14 +3,15 @@
 import { useState } from "react"
 
 import { formatCurrency } from "@/lib/format-currency"
-import { api } from "@/lib/api" // Declare the api variable
+import { type WalletTransaction, api } from "@/lib/api"
 
 interface DepositModalProps {
   onClose: () => void
   onSuccess?: () => void
+  onSetMessage: (msg: { type: 'success' | 'error', text: string }) => void
 }
 
-export function DepositModal({ onClose, onSuccess }: DepositModalProps) {
+export function DepositModal({ onClose, onSuccess, onSetMessage }: DepositModalProps) {
   const [step, setStep] = useState<"account" | "amount">("account")
   const [selectedAccount, setSelectedAccount] = useState("main")
   const [kesAmount, setKesAmount] = useState("")
@@ -18,7 +19,7 @@ export function DepositModal({ onClose, onSuccess }: DepositModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
 
-  const conversionRate = 133.5
+  const conversionRate = 130.0
   const usdAmount = (Number.parseFloat(kesAmount) / conversionRate).toFixed(2)
   const minimumDeposit = 5
 
@@ -58,13 +59,13 @@ export function DepositModal({ onClose, onSuccess }: DepositModalProps) {
       })
       if (res.error) throw new Error(res.error)
 
-      const ref = (res.data as any)?.reference_id ?? (res.data as any)?.referenceId ?? "N/A"
+      const ref = (res.data as any)?.reference_id ?? "N/A"
       const msg = (res.data as any)?.message ?? ""
-      alert(`Deposit initiated! Reference: ${ref}\n${msg}`)
+      onSetMessage({ type: 'success', text: `Deposit initiated! Reference: ${ref}\n${msg}` })
       onSuccess?.()
       onClose()
     } catch (err) {
-      setError((err as Error).message || "Failed to process deposit")
+      onSetMessage({ type: 'error', text: (err as Error).message || "Failed to process deposit" })
     } finally {
       setIsSubmitting(false)
     }

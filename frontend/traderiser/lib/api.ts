@@ -31,6 +31,7 @@ export interface WalletTransaction {
   converted_amount?: string
   target_currency?: Currency
   exchange_rate_used?: number
+  
 }
 
 export interface MpesaNumberResponse {

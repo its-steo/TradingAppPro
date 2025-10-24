@@ -8,9 +8,10 @@ import { type Wallet, api } from "@/lib/api"
 interface WithdrawModalProps {
   onClose: () => void
   onSuccess?: () => void
+  onSetMessage: (msg: { type: 'success' | 'error', text: string }) => void
 }
 
-export function WithdrawModal({ onClose, onSuccess }: WithdrawModalProps) {
+export function WithdrawModal({ onClose, onSuccess, onSetMessage }: WithdrawModalProps) {
   const [step, setStep] = useState<"account" | "mpesa" | "amount">("account")
   const [selectedAccount, setSelectedAccount] = useState("main")
   const [mpesaNumber, setMpesaNumber] = useState("")
@@ -85,7 +86,7 @@ export function WithdrawModal({ onClose, onSuccess }: WithdrawModalProps) {
       const data = res.data as { transaction_id?: string } | undefined
       setTransactionId(data?.transaction_id || "")
       setShowOTPModal(true)
-      alert(`OTP sent to your email! Transaction ID: ${data?.transaction_id || ""}`)
+      onSetMessage({ type: 'success', text: `OTP sent to your email! Transaction ID: ${data?.transaction_id || ""}` })
     } catch (err) {
       setError((err as Error).message || "Failed to process withdrawal")
     } finally {
@@ -114,7 +115,7 @@ export function WithdrawModal({ onClose, onSuccess }: WithdrawModalProps) {
   }
 
   if (showOTPModal) {
-    return <VerifyWithdrawalModal transactionId={transactionId} onClose={onClose} onSuccess={onSuccess} />
+    return <VerifyWithdrawalModal transactionId={transactionId} onClose={onClose} onSuccess={onSuccess} onSetMessage={onSetMessage} />
   }
 
   return (

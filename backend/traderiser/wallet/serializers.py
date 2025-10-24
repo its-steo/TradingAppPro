@@ -47,6 +47,7 @@ class WalletTransactionSerializer(serializers.ModelSerializer):
 class OTPRequestSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=14, decimal_places=2)
     wallet_type = serializers.CharField(default='main')
+    account_type = serializers.CharField(default='standard')  # Added for account-specific operations
 
 class OTPVerifySerializer(serializers.Serializer):
     code = serializers.CharField(max_length=6)
