@@ -1,3 +1,4 @@
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
 
 interface ApiResponse<T> {
@@ -6,6 +7,35 @@ interface ApiResponse<T> {
   status?: number
 }
 
+export interface Currency {
+  code: string
+  name: string
+}
+
+export interface Wallet {
+  id: number
+  account_type: string
+  wallet_type: string
+  balance: string
+  currency: Currency
+  created_at: string
+}
+
+export interface WalletTransaction {
+  id: number
+  transaction_type: string
+  amount: string
+  currency: Currency
+  status: string
+  created_at: string
+  converted_amount?: string
+  target_currency?: Currency
+  exchange_rate_used?: number
+}
+
+export interface MpesaNumberResponse {
+  phone_number: string
+}
 
 export async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = localStorage.getItem("refresh_token")
@@ -73,102 +103,108 @@ export async function apiRequest<T>(endpoint: string, options: RequestInit = {})
 
     return { data }
   } catch (error) {
-    console.error("[v0] API request error:", error)
+    console.error("[v0] API request failed:", error)
     return { error: "Network error. Please check your connection." }
   }
 }
 
+// Auth & Accounts
+export const signup = (data: any) => apiRequest("/accounts/signup/", { method: "POST", body: JSON.stringify(data) })
+
+export const login = (data: any) => apiRequest("/accounts/login/", { method: "POST", body: JSON.stringify(data) })
+
+export const getAccount = () => apiRequest("/accounts/account/")
+
+// Markets & Trading
+export const getMarkets = () => apiRequest("/trading/markets/")
+
+export const getTradeTypes = () => apiRequest("/trading/trade-types/")
+
+export const getAssets = () => apiRequest("/trading/assets/")
+
+export const placeTrade = (data: any) => apiRequest("/trading/trades/place/", { method: "POST", body: JSON.stringify(data) })
+
+export const getTradeHistory = (params?: any) => {
+  const queryString = params ? `?${new URLSearchParams(params).toString()}` : ""
+  return apiRequest(`/trading/trades/history/${queryString}`)
+}
+
+export const cancelTrade = (tradeId: number) => apiRequest(`/trading/trades/${tradeId}/cancel/`, { method: "POST" })
+
+export const getPriceHistory = (assetId: number) => apiRequest(`/trading/price/history/?asset_id=${assetId}`)
+
+export const getRobots = () => apiRequest("/trading/robots/")
+
+export const getUserRobots = () => apiRequest("/trading/user-robots/")
+
+export const purchaseRobot = (robotId: number) => apiRequest(`/trading/robots/${robotId}/purchase/`, { method: "POST" })
+
+export const resetDemoBalance = () => apiRequest("/trading/reset-demo-balance/", { method: "POST" })
+
+// Bots
+export const getBots = () => apiRequest("/bots/bots/")
+
+export const createBot = (data: any) => apiRequest("/bots/bots/create/", { method: "POST", body: JSON.stringify(data) })
+
+export const toggleBot = (botId: number) => apiRequest(`/bots/bots/${botId}/toggle/`, { method: "POST" })
+
+export const getSubscription = () => apiRequest("/bots/subscription/")
+
+export const subscribe = () => apiRequest("/bots/subscription/", { method: "POST" })
+
+// Dashboard
+export const getDashboard = () => apiRequest("/dashboard/")
+
+// Wallet
+export const getWallets = () => apiRequest<{ wallets: Wallet[] }>("/wallet/wallets/")
+
+export const getWalletTransactions = () => apiRequest<{ transactions: WalletTransaction[] }>("/wallet/transactions/")
+
+export const deposit = (data: { amount: number; currency: string; wallet_type: string; mpesa_phone: string }) =>
+  apiRequest("/wallet/deposit/", { method: "POST", body: JSON.stringify(data) })
+
+export const withdraw = (data: { amount: number; wallet_type: string }) =>
+  apiRequest("/wallet/withdraw/otp/", { method: "POST", body: JSON.stringify(data) })
+
+export const verifyWithdrawal = (data: { code: string; transaction_id: string }) =>
+  apiRequest("/wallet/withdraw/verify/", { method: "POST", body: JSON.stringify(data) })
+
+export const getMpesaNumber = () => apiRequest<MpesaNumberResponse>("/wallet/mpesa-number/")
+
+export const setMpesaNumber = (phone_number: string) =>
+  apiRequest("/wallet/mpesa-number/", { method: "POST", body: JSON.stringify({ phone_number }) })
+
+export const resendOTP = (transaction_id: string) =>
+  apiRequest("/wallet/resend-otp/", { method: "POST", body: JSON.stringify({ transaction_id }) })
+
+// Export all functions as an `api` object for compatibility
 export const api = {
-  // Auth
-  signup: (data: { username: string; email: string; password: string; phone?: string; account_type: string }) => {
-    console.log("Signup payload:", data)
-    return apiRequest("/accounts/signup/", { method: "POST", body: JSON.stringify(data) })
-  },
-
-  login: (data: { email: string; password: string; account_type: string; two_factor_code?: string }) => {
-    console.log("Login payload:", {
-      email: data.email,
-      password: data.password,
-      account_type: data.account_type,
-      ...(data.two_factor_code && { two_factor_code: data.two_factor_code }),
-    })
-    return apiRequest("/accounts/login/", {
-      method: "POST",
-      body: JSON.stringify({
-        email: data.email,
-        password: data.password,
-        account_type: data.account_type,
-        ...(data.two_factor_code && { two_factor_code: data.two_factor_code }),
-      }),
-    })
-  },
-
-  getAccountDetails: () => apiRequest("/accounts/account/"),
-
-  submitKYC: (formData: FormData) =>
-    apiRequest("/accounts/kyc/", {
-      method: "POST",
-      body: formData,
-      headers: {},
-    }),
-
-  enable2FA: () => apiRequest("/accounts/2fa/enable/", { method: "POST" }),
-
-  toggleSashi: () => apiRequest("/accounts/sashi/toggle/", { method: "POST" }),
-
-  getAccount: () => apiRequest("/accounts/account/"),
-
-  // Markets & Trading
-  getMarkets: () => apiRequest("/trading/markets/"),
-
-  getTradeTypes: () => apiRequest("/trading/trade-types/"),
-
-  getAssets: () => apiRequest("/trading/assets/"),
-
-  placeTrade: (data: any) => apiRequest("/trading/trades/place/", { method: "POST", body: JSON.stringify(data) }),
-
-  getTradeHistory: (params?: any) => {
-    const queryString = params ? `?${new URLSearchParams(params).toString()}` : ""
-    return apiRequest(`/trading/trades/history/${queryString}`)
-  },
-
-  cancelTrade: (tradeId: number) => apiRequest(`/trading/trades/${tradeId}/cancel/`, { method: "POST" }),
-
-  getPriceHistory: (assetId: number) => apiRequest(`/trading/price/history/?asset_id=${assetId}`),
-
-  getRobots: () => apiRequest("/trading/robots/"),
-
-  getUserRobots: () => apiRequest("/trading/user-robots/"),
-
-  purchaseRobot: (robotId: number) => apiRequest(`/trading/robots/${robotId}/purchase/`, { method: "POST" }),
-
-  resetDemoBalance: () => apiRequest("/trading/reset-demo-balance/", { method: "POST" }),
-
-  // Bots
-  getBots: () => apiRequest("/bots/bots/"),
-
-  createBot: (data: any) => apiRequest("/bots/bots/create/", { method: "POST", body: JSON.stringify(data) }),
-
-  toggleBot: (botId: number) => apiRequest(`/bots/bots/${botId}/toggle/`, { method: "POST" }),
-
-  getSubscription: () => apiRequest("/bots/subscription/"),
-
-  subscribe: () => apiRequest("/bots/subscription/", { method: "POST" }),
-
-  // Payments
-  getPaymentMethods: () => apiRequest("/payments/methods/"),
-
-  deposit: (data: { method_id: number; amount: number }) =>
-    apiRequest("/payments/deposit/", { method: "POST", body: JSON.stringify(data) }),
-
-  withdraw: (data: { method_id: number; amount: number }) =>
-    apiRequest("/payments/withdraw/", { method: "POST", body: JSON.stringify(data) }),
-
-  getTransactionHistory: () => apiRequest("/payments/history/"),
-
-  // Dashboard
-  getDashboard: () => apiRequest("/dashboard/"),
-
-  getChatMessages: (market: string) => apiRequest(`/chat/messages/${market}/`),
-
+  signup,
+  login,
+  getAccount,
+  getMarkets,
+  getTradeTypes,
+  getAssets,
+  placeTrade,
+  getTradeHistory,
+  cancelTrade,
+  getPriceHistory,
+  getRobots,
+  getUserRobots,
+  purchaseRobot,
+  resetDemoBalance,
+  getBots,
+  createBot,
+  toggleBot,
+  getSubscription,
+  subscribe,
+  getDashboard,
+  getWallets,
+  getWalletTransactions,
+  deposit,
+  withdraw,
+  verifyWithdrawal,
+  getMpesaNumber,
+  setMpesaNumber,
+  resendOTP,
 }
